@@ -39,6 +39,7 @@ defmodule MCP.MixProject do
   defp deps do
     [
       {:jason, "~> 1.4"},
+      {:uuid, "~> 1.1"},
       {:ex_doc, "~> 0.34", only: [:dev, :test], runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false}
     ]
