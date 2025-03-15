@@ -70,6 +70,17 @@ defmodule MCP.ValidatorTest do
       assert error =~ "Missing or invalid 'id' field"
     end
 
+    test "rejects a response with non-string or non-number id" do
+      response = %{
+        "jsonrpc" => "2.0",
+        "id" => true,
+        "result" => %{"value" => "success"}
+      }
+
+      assert {:error, error} = Validator.validate_response(response)
+      assert error =~ "Missing or invalid 'id' field"
+    end
+
     test "rejects a response with neither result nor error" do
       response = %{
         "jsonrpc" => "2.0",
@@ -155,6 +166,17 @@ defmodule MCP.ValidatorTest do
         "jsonrpc" => "2.0",
         "id" => 1,
         "method" => ""
+      }
+
+      assert {:error, error} = Validator.validate_request(request)
+      assert error =~ "Missing or invalid 'method' field"
+    end
+
+    test "rejects a request with nil method" do
+      request = %{
+        "jsonrpc" => "2.0",
+        "id" => 1,
+        "method" => nil
       }
 
       assert {:error, error} = Validator.validate_request(request)

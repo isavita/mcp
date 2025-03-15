@@ -78,7 +78,7 @@ defmodule MCP.Validator do
   end
 
   @spec validate_id_present(map()) :: :ok | {:error, String.t()}
-  defp validate_id_present(%{"id" => id}) when not is_nil(id), do: :ok
+  defp validate_id_present(%{"id" => id}) when is_binary(id) or is_number(id), do: :ok
 
   defp validate_id_present(message) do
     {:error, "Missing or invalid 'id' field: #{inspect(message)}"}
@@ -92,8 +92,10 @@ defmodule MCP.Validator do
   defp validate_no_id(_message), do: :ok
 
   @spec validate_method_present(map()) :: :ok | {:error, String.t()}
-  defp validate_method_present(%{"method" => method}) when is_binary(method) and method != "",
-    do: :ok
+  defp validate_method_present(%{"method" => method})
+       when is_binary(method) and method not in ["", nil] do
+    :ok
+  end
 
   defp validate_method_present(message) do
     {:error, "Missing or invalid 'method' field: #{inspect(message)}"}
