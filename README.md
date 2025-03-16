@@ -107,10 +107,3 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENS
 
 - The [Model Context Protocol](https://github.com/model-context-protocol) team for the specification
 - All contributors who have helped build and improve this library
-```
-
-This provides a solid foundation for your MCP library. The MCP module offers a simple public API with convenience functions, while the README.md provides comprehensive documentation that explains the library's purpose, how to use it, and its architecture.
-
-The README includes badges, installation instructions, usage examples, architectural overview, and contribution guidelines, making it easy for users to understand and start using the library.
-
-Would you like me to make any changes or additions to either the MCP module or the README.md?
