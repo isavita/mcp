@@ -2,7 +2,7 @@
 
 [![Hex.pm](https://img.shields.io/hexpm/v/mcp.svg)](https://hex.pm/packages/mcp)
 [![Hexdocs.pm](https://img.shields.io/badge/api-docs-purple.svg)](https://hexdocs.pm/mcp)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
 An Elixir client library for the [Model Context Protocol (MCP)](https://github.com/model-context-protocol), which enables communication between LLMs and external tools, data sources, and services.
 
