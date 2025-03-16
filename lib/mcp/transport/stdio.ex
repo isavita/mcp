@@ -101,6 +101,11 @@ defmodule MCP.Transport.Stdio do
       Logger.debug("Starting STDIO transport")
     end
 
+    # If using MockIO, register with it
+    if io_module == MCP.Test.MockIO do
+      :ok = io_module.register_transport(self())
+    end
+
     # Start IO reading process if not in test mode
     reader_pid =
       if io_module == IO do

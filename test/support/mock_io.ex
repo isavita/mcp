@@ -1,80 +1,117 @@
 defmodule MCP.Test.MockIO do
   @moduledoc """
   Mock IO module for testing the STDIO transport.
-
-  This module simulates stdin/stdout operations for testing purposes.
   """
 
   use GenServer
+  require Logger
 
   # Client API
 
-  @doc """
-  Starts the MockIO server.
-
-  ## Options
-  No options are required but this function accepts a keyword list
-  to be compatible with standard supervision patterns.
-  """
   def start_link(opts \\ []) do
-    name = Keyword.get(opts, :name, __MODULE__)
+    name = Keyword.get(opts, :name)
     GenServer.start_link(__MODULE__, [], name: name)
   end
 
-  @doc """
-  Simulates binread from a device. For testing only.
-
-  In normal operation, we simulate input using the
-  `MCP.Transport.Stdio.simulate_input/2` function instead.
-  """
   def binread(_device, :line) do
-    # Not used directly in tests since we simulate input via
-    # MCP.Transport.Stdio.simulate_input/2
     :eof
   end
 
-  @doc """
-  Records output that would normally go to stdio.
-  """
   def binwrite(_device, data) do
-    GenServer.cast(__MODULE__, {:output, data})
+    # When something writes to stdout, distribute to registered transports
+    case find_server() do
+      {:ok, pid} -> GenServer.cast(pid, {:distribute, data})
+      {:error, _} -> Logger.warning("MockIO: No process found to distribute message")
+    end
+
     :ok
   end
 
-  @doc """
-  Returns all collected output as a single string.
-  """
   def get_output do
-    GenServer.call(__MODULE__, :get_output)
+    case find_server() do
+      {:ok, pid} -> GenServer.call(pid, :get_output)
+      {:error, _} -> ""
+    end
   end
 
-  @doc """
-  Clears all collected output.
-  """
   def clear_output do
-    GenServer.call(__MODULE__, :clear_output)
+    case find_server() do
+      {:ok, pid} -> GenServer.call(pid, :clear_output)
+      {:error, _} -> :ok
+    end
+  end
+
+  def register_transport(transport_pid) do
+    case find_server() do
+      {:ok, pid} -> GenServer.call(pid, {:register_transport, transport_pid})
+      {:error, _} -> :ok
+    end
   end
 
   # GenServer callbacks
 
   @impl GenServer
   def init(_) do
-    {:ok, []}
+    {:ok, %{output: [], transports: []}}
   end
 
   @impl GenServer
-  def handle_cast({:output, data}, state) do
-    {:noreply, [data | state]}
+  def handle_cast({:distribute, data}, state) do
+    # Log what's being sent
+    Logger.debug("MockIO distributing: #{inspect(data)}")
+
+    # Store in output for inspection
+    updated_output = [data | state.output]
+
+    # Forward to all registered transports
+    for transport <- state.transports do
+      if Process.alive?(transport) do
+        send(transport, {:io_data, data})
+      end
+    end
+
+    {:noreply, %{state | output: updated_output}}
+  end
+
+  @impl GenServer
+  def handle_call({:register_transport, pid}, _from, state) do
+    Logger.debug("MockIO registered transport: #{inspect(pid)}")
+    # Add this transport if not already registered
+    updated_transports =
+      if Enum.member?(state.transports, pid) do
+        state.transports
+      else
+        [pid | state.transports]
+      end
+
+    {:reply, :ok, %{state | transports: updated_transports}}
   end
 
   @impl GenServer
   def handle_call(:get_output, _from, state) do
-    output = state |> Enum.reverse() |> Enum.join("")
+    output = state.output |> Enum.reverse() |> Enum.join("")
     {:reply, output, state}
   end
 
   @impl GenServer
-  def handle_call(:clear_output, _from, _state) do
-    {:reply, :ok, []}
+  def handle_call(:clear_output, _from, state) do
+    {:reply, :ok, %{state | output: []}}
+  end
+
+  # Private functions
+
+  # Try to find the server process, checking multiple places
+  defp find_server do
+    case Process.whereis(:mock_io_test) do
+      nil ->
+        # Try to find in the ExUnit supervisor
+        case Process.whereis(MCP.Test.MockIO) do
+          nil -> {:error, :not_found}
+          pid -> {:ok, pid}
+        end
+
+      pid ->
+        {:ok, pid}
+    end
   end
 end

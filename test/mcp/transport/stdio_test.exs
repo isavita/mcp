@@ -1,6 +1,7 @@
 defmodule MCP.Transport.StdioTest do
   use ExUnit.Case, async: false
   require Logger
+
   alias MCP.Transport.Stdio
   alias MCP.Protocol.Formatter
   alias MCP.Test.MockIO
@@ -8,13 +9,26 @@ defmodule MCP.Transport.StdioTest do
   # Set longer timeout for process communication
   @moduletag timeout: 2000
 
+  setup_all do
+    # Start one MockIO for all tests to share
+    {:ok, mock_io} = MockIO.start_link(name: MCP.Test.MockIO)
+
+    on_exit(fn ->
+      if Process.alive?(mock_io) do
+        GenServer.stop(mock_io)
+      end
+    end)
+
+    :ok
+  end
+
   setup do
+    # Configure logger to reduce noise
     previous_level = Logger.level()
-    Logger.configure(level: :warning)
+    Logger.configure(level: :error)
     on_exit(fn -> Logger.configure(level: previous_level) end)
 
-    # Start the mock IO service
-    {:ok, _} = start_supervised(MockIO)
+    # Clear any previous output
     MockIO.clear_output()
 
     # Use unique name for each test to avoid conflicts
