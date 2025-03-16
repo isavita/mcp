@@ -1,4 +1,4 @@
-defmodule MCP.Formatter do
+defmodule MCP.Protocol.Formatter do
   @moduledoc """
   Formats messages for the Model Context Protocol according to the JSON-RPC 2.0 specification.
 

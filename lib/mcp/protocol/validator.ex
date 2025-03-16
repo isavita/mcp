@@ -1,4 +1,4 @@
-defmodule MCP.Validator do
+defmodule MCP.Protocol.Validator do
   @moduledoc """
   Validates Model Context Protocol messages according to the JSON-RPC 2.0 specification.
 

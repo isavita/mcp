@@ -1,8 +1,8 @@
-defmodule MCP.ValidatorTest do
+defmodule MCP.Protocol.ValidatorTest do
   use ExUnit.Case, async: true
-  doctest MCP.Validator
+  doctest MCP.Protocol.Validator
 
-  alias MCP.Validator
+  alias MCP.Protocol.Validator
 
   describe "validate_response/1" do
     test "validates a successful response" do

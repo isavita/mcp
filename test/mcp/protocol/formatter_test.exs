@@ -1,8 +1,8 @@
-defmodule MCP.FormatterTest do
+defmodule MCP.Protocol.FormatterTest do
   use ExUnit.Case, async: true
-  doctest MCP.Formatter
+  doctest MCP.Protocol.Formatter
 
-  alias MCP.Formatter
+  alias MCP.Protocol.Formatter
 
   describe "create_request/3" do
     test "creates a valid request with all parameters" do
