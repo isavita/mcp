@@ -41,7 +41,8 @@ defmodule MCP.MixProject do
       {:jason, "~> 1.4"},
       {:uuid, "~> 1.1"},
       {:ex_doc, "~> 0.34", only: [:dev, :test], runtime: false},
-      {:credo, "~> 1.7", only: [:dev, :test], runtime: false}
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:meck, "~> 1.0", only: [:test]}
     ]
   end
 
