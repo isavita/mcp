@@ -1,0 +1,100 @@
+# MCP manual tests
+
+```elixir
+Mix.install([
+  {:mcp, path: __DIR__}
+])
+```
+
+## MCP client with the filesystem server
+
+```elixir
+# Start an MCP client with the filesystem server
+{:ok, client} = MCP.Client.start_link([
+  transport: MCP.Transport.Stdio,
+  transport_opts: [
+    command: "/Users/dimova01/.asdf/shims/npx -y @modelcontextprotocol/server-filesystem /Users/dimova01/git/origin_simulator",
+  ]
+])
+
+# Initialize the connection
+{:ok, capabilities} = MCP.Client.initialize(client)
+:ok = MCP.Client.send_initialized(client)
+
+# Get the client capabilities
+IO.puts("Server capabilities:")
+IO.inspect(capabilities)
+```
+
+```elixir
+# List available tools
+{:ok, tools} = MCP.Client.list_tools(client)
+
+# Display available tools
+IO.puts("Available tools:")
+if is_map(tools) and Map.has_key?(tools, "tools") do
+  Enum.each(tools["tools"], fn tool ->
+    IO.puts("- #{tool["name"]}: #{tool["description"] || "No description"}")
+  end)
+end
+```
+
+```elixir
+# List the root directory contents
+{:ok, result} = MCP.Client.call_tool(client, "list_directory", 
+  arguments: %{"path" => "/Users/dimova01/git/origin_simulator"})
+
+# First inspect the full response structure
+IO.puts("Raw response:")
+IO.inspect(result)
+
+# Then display the contents more specifically
+IO.puts("\nDirectory contents:")
+if is_map(result) and Map.has_key?(result, "entries") do
+  Enum.each(result["entries"], fn entry ->
+    IO.puts("- #{entry}")
+  end)
+else
+  IO.inspect(result, label: "Contents")
+end
+```
+
+```elixir
+# Read a specific file
+file_path = "/Users/dimova01/git/origin_simulator/README.md"
+
+{:ok, file_result} = MCP.Client.call_tool(client, "read_file", 
+  arguments: %{"path" => file_path})
+
+# Display file content
+IO.puts("File content of #{file_path}:")
+IO.inspect(file_result)
+```
+
+```elixir
+# Search using just the extension as a simple string
+dir_path = "/Users/dimova01/git/origin_simulator/lib"
+
+{:ok, search_result} = MCP.Client.call_tool(client, "search_files", 
+  arguments: %{
+    "path" => dir_path,
+    "pattern" => ".ex",
+    "excludePatterns" => ["_build", "deps"] 
+  })
+
+IO.puts("Files matching pattern '.ex':")
+IO.inspect(search_result)
+```
+
+```elixir
+# Get file metadata
+{:ok, file_info} = MCP.Client.call_tool(client, "get_file_info", 
+  arguments: %{"path" => file_path})
+
+# Display file metadata
+IO.puts("File information for #{file_path}:")
+IO.inspect(file_info)
+
+# Clean up when done
+MCP.Client.close(client)
+```
