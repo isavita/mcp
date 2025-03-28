@@ -19,17 +19,23 @@ defmodule MCP.Client do
   Starts a new MCP client that communicates with a server.
 
   ## Options
-    * `:transport` - The transport module to use (default: MCP.Transport.Stdio)
-    * `:transport_opts` - Options to pass to the transport
-    * `:debug_mode` - Enable debug logging (default: Application.get_env(:mcp, :debug, false))
-    * `:name` - Optional name for the client process
+    * `:transport` - The transport module to use (default: `MCP.Transport.Stdio`).
+    * `:transport_opts` - Options to pass to the transport's `start_link/1`.
+      * For `MCP.Transport.Stdio`, this **must** include a `:command` key specifying the server command string. Example: `transport_opts: [command: "npx ..."]`.
+    * `:debug_mode` - Enable debug logging (default: `Application.get_env(:mcp, :debug, false)`).
+    * `:name` - Optional name for the client process.
 
   ## Example
-      # Start a client using STDIO transport
-      {:ok, client} = MCP.Client.start_link()
+      # Start a client using STDIO transport with an external server
+      {:ok, client} = MCP.Client.start_link(
+        transport_opts: [command: "npx -y @modelcontextprotocol/server-filesystem /path/to/my/data"]
+      )
 
       # Start a client with debug enabled
-      {:ok, client} = MCP.Client.start_link(debug_mode: true)
+      {:ok, client} = MCP.Client.start_link(
+        debug_mode: true,
+        transport_opts: [command: "my_mcp_server --stdio"]
+      )
   """
   def start_link(opts \\ []) do
     {name_opt, client_opts} = Keyword.pop(opts, :name)
@@ -47,14 +53,15 @@ defmodule MCP.Client do
   This sends the initialize request to establish capabilities with the server.
 
   ## Example
-      {:ok, client} = MCP.Client.start_link()
+      {:ok, client} = MCP.Client.start_link(transport_opts: [command: "..."])
       {:ok, capabilities} = MCP.Client.initialize(client)
   """
   def initialize(client, opts \\ []) do
     timeout = Keyword.get(opts, :timeout, @default_timeout)
     protocol_version = Keyword.get(opts, :protocol_version, "2024-11-05")
     client_name = Keyword.get(opts, :client_name, "Elixir MCP Client")
-    client_version = Keyword.get(opts, :client_version, "0.1.0")
+    # Use library version
+    client_version = Keyword.get(opts, :client_version, MCP.version())
 
     request =
       Formatter.initialize_request(
@@ -80,7 +87,7 @@ defmodule MCP.Client do
   Pings the server to check if it's still alive.
 
   ## Options
-    * `:timeout` - How long to wait for a response (default: 30 seconds)
+    * `:timeout` - How long to wait for a response (default: 5 seconds)
 
   ## Example
       {:ok, _} = MCP.Client.ping(client)
@@ -100,7 +107,7 @@ defmodule MCP.Client do
 
   ## Options
     * `:cursor` - Pagination cursor for continuing a previous list operation
-    * `:timeout` - How long to wait for a response (default: 30 seconds)
+    * `:timeout` - How long to wait for a response (default: 5 seconds)
 
   ## Example
       {:ok, resources} = MCP.Client.list_resources(client)
@@ -124,7 +131,7 @@ defmodule MCP.Client do
     * `uri` - URI of the resource to read
 
   ## Options
-    * `:timeout` - How long to wait for a response (default: 30 seconds)
+    * `:timeout` - How long to wait for a response (default: 5 seconds)
 
   ## Example
       {:ok, content} = MCP.Client.read_resource(client, "file:///path/to/resource")
@@ -145,7 +152,7 @@ defmodule MCP.Client do
 
   ## Options
     * `:cursor` - Pagination cursor for continuing a previous list operation
-    * `:timeout` - How long to wait for a response (default: 30 seconds)
+    * `:timeout` - How long to wait for a response (default: 5 seconds)
 
   ## Example
       {:ok, prompts} = MCP.Client.list_prompts(client)
@@ -170,7 +177,7 @@ defmodule MCP.Client do
 
   ## Options
     * `:arguments` - Arguments to use when templating the prompt
-    * `:timeout` - How long to wait for a response (default: 30 seconds)
+    * `:timeout` - How long to wait for a response (default: 5 seconds)
 
   ## Example
       {:ok, prompt} = MCP.Client.get_prompt(client, "greeting_prompt", arguments: %{"name" => "John"})
@@ -192,7 +199,7 @@ defmodule MCP.Client do
 
   ## Options
     * `:cursor` - Pagination cursor for continuing a previous list operation
-    * `:timeout` - How long to wait for a response (default: 30 seconds)
+    * `:timeout` - How long to wait for a response (default: 5 seconds)
 
   ## Example
       {:ok, tools} = MCP.Client.list_tools(client)
@@ -217,7 +224,7 @@ defmodule MCP.Client do
 
   ## Options
     * `:arguments` - Arguments to pass to the tool
-    * `:timeout` - How long to wait for a response (default: 30 seconds)
+    * `:timeout` - How long to wait for a response (default: 5 seconds)
 
   ## Example
       {:ok, result} = MCP.Client.call_tool(client, "calculator", arguments: %{"op" => "add", "a" => 5, "b" => 3})
@@ -259,11 +266,12 @@ defmodule MCP.Client do
     * `notification` - A map representing the JSON-RPC notification
 
   ## Returns
-    * `:ok` - Notification was sent
-    * `{:error, reason}` - Failed to send notification
+    * `:ok` - Notification was sent successfully via the transport call.
+    * `{:error, reason}` - Failed to send notification (error returned by transport).
   """
   def notify(client, notification) do
-    GenServer.cast(client, {:notify, notification})
+    # Use call to get immediate feedback from the transport about sending
+    GenServer.call(client, {:notify, notification})
   end
 
   @doc """
@@ -296,8 +304,12 @@ defmodule MCP.Client do
     transport_opts = Keyword.get(opts, :transport_opts, [])
     existing_transport = Keyword.get(opts, :existing_transport)
 
+    # Ensure debug_mode is passed down if not explicitly set in transport_opts
+    transport_opts = Keyword.put_new(transport_opts, :debug_mode, debug_mode)
+
     if debug_mode do
-      Logger.debug("Starting MCP client")
+      Logger.debug("Starting MCP client with transport #{inspect(transport_mod)}")
+      Logger.debug("Transport options: #{inspect(transport_opts)}")
     end
 
     # Get the transport - either use existing or start a new one
@@ -305,26 +317,48 @@ defmodule MCP.Client do
       if existing_transport do
         {:ok, existing_transport}
       else
-        transport_mod.start_link(transport_opts)
+        # Check required options for specific transports
+        if transport_mod == MCP.Transport.Stdio && !Keyword.has_key?(transport_opts, :command) do
+          {:error, :missing_command_option}
+        else
+          transport_mod.start_link(transport_opts)
+        end
       end
 
     case transport_result do
       {:ok, transport} ->
         # Subscribe to messages from the transport
-        :ok = transport_mod.register_handler(transport, self())
+        case transport_mod.register_handler(transport, self()) do
+          :ok ->
+            # Monitor the transport process
+            Process.monitor(transport)
+            # Return initial state
+            {:ok,
+             %{
+               debug_mode: debug_mode,
+               transport: transport,
+               transport_mod: transport_mod,
+               pending_requests: %{},
+               initialized: false
+             }}
 
-        # Return initial state
-        {:ok,
-         %{
-           debug_mode: debug_mode,
-           transport: transport,
-           transport_mod: transport_mod,
-           pending_requests: %{},
-           initialized: false
-         }}
+          {:error, reason} ->
+            Logger.error("Failed to register client with transport: #{inspect(reason)}")
+            # Ensure transport is stopped if registration fails
+            if !existing_transport, do: transport_mod.close(transport)
+            {:stop, {:transport_registration_failed, reason}}
+        end
+
+      {:error, :missing_command_option} ->
+        Logger.error(
+          "MCP.Client failed to start: :command option missing in :transport_opts for MCP.Transport.Stdio"
+        )
+
+        {:stop, :missing_command_option}
 
       {:error, reason} ->
-        {:stop, {:transport_error, reason}}
+        Logger.error("MCP.Client failed to start transport: #{inspect(reason)}")
+        {:stop, {:transport_start_failed, reason}}
     end
   end
 
@@ -336,7 +370,7 @@ defmodule MCP.Client do
   @impl GenServer
   def handle_call({:request, request}, from, state) do
     if state.debug_mode do
-      Logger.debug("Sending request: #{inspect(request)}")
+      Logger.debug("Client sending request: #{inspect(request)}")
     end
 
     # Get the request ID for correlation
@@ -352,57 +386,120 @@ defmodule MCP.Client do
         {:noreply, %{state | pending_requests: pending}}
 
       {:error, reason} ->
-        {:reply, {:error, reason}, state}
+        Logger.error("Client failed to send request via transport: #{inspect(reason)}")
+        {:reply, {:error, {:transport_send_failed, reason}}, state}
     end
   end
 
+  # Changed notify to handle_call to get immediate feedback
   @impl GenServer
-  def handle_cast({:notify, notification}, state) do
+  def handle_call({:notify, notification}, _from, state) do
     if state.debug_mode do
-      Logger.debug("Sending notification: #{inspect(notification)}")
+      Logger.debug("Client sending notification: #{inspect(notification)}")
     end
 
     # Send the notification through the transport
     case state.transport_mod.send_message(state.transport, notification) do
       :ok ->
-        {:noreply, state}
+        # Reply immediately on successful send call
+        {:reply, :ok, state}
 
       {:error, reason} ->
-        Logger.error("Failed to send notification: #{inspect(reason)}")
-        {:noreply, state}
+        Logger.error("Client failed to send notification via transport: #{inspect(reason)}")
+        {:reply, {:error, {:transport_send_failed, reason}}, state}
     end
   end
 
   @impl GenServer
   def handle_info({:mcp_message, message}, state) do
     if state.debug_mode do
-      Logger.debug("Client received message: #{inspect(message)}")
+      Logger.debug("Client received message from transport: #{inspect(message)}")
     end
 
     # Check if this is a response to a request we sent
-    if Map.has_key?(message, "id") && Map.has_key?(state.pending_requests, message["id"]) do
-      # Get the caller waiting for this response
-      id = message["id"]
-      {from, pending} = Map.pop(state.pending_requests, id)
+    # Need to handle potential nil ID in error responses from parse errors
+    case Map.get(message, "id") do
+      nil ->
+        # Could be a notification from the server, or a parse error response
+        Logger.info(
+          "Client received message without ID (Notification or Parse Error Response): #{inspect(message)}"
+        )
 
-      # Reply to the caller with the response
-      GenServer.reply(from, {:ok, message})
+        # TODO: Add handling for server-initiated notifications if needed
+        {:noreply, state}
 
-      # Update state without this pending request
-      {:noreply, %{state | pending_requests: pending}}
-    else
-      # This is a server-initiated request or notification
-      Logger.info("Received server-initiated message: #{inspect(message)}")
-      {:noreply, state}
+      id ->
+        # Check if it's a response we are waiting for
+        case Map.pop(state.pending_requests, id) do
+          {from, pending} ->
+            # Reply to the original caller with the response
+            GenServer.reply(from, {:ok, message})
+            # Update state without this pending request
+            {:noreply, %{state | pending_requests: pending}}
+
+          # This case is unreachable if `id` is not nil and Map.get found it.
+          # If Map.pop fails (key doesn't exist), it returns :error.
+          # We rely on the outer case Map.get(...) to handle the "not found" case.
+          # :error ->
+          #   Logger.warning("Client received unexpected response with ID #{inspect(id)}: #{inspect(message)}")
+          #   {:noreply, state}
+
+          # If Map.pop returns :error (key not found), log warning
+          # This path is taken if the id exists in the message but not in pending_requests
+          :error ->
+            Logger.warning(
+              "Client received response for unknown or timed-out ID #{inspect(id)}: #{inspect(message)}"
+            )
+
+            {:noreply, state}
+        end
     end
+  end
+
+  # Handle transport termination unexpectedly
+  @impl GenServer
+  def handle_info({:DOWN, _ref, :process, pid, reason}, %{transport: pid} = state) do
+    Logger.error("MCP transport process terminated unexpectedly: #{inspect(reason)}")
+    # Reply with errors to all pending requests
+    for {id, from} <- state.pending_requests do
+      # Use try/catch as the caller might already be dead
+      try do
+        GenServer.reply(from, {:error, {:transport_terminated, reason}})
+        Logger.debug("Replied with error to pending request #{inspect(id)}")
+      catch
+        # Ignore if caller is dead
+        :exit, _ -> :ok
+      end
+    end
+
+    # Stop the client
+    {:stop, {:transport_terminated, reason}, %{state | transport: nil, pending_requests: %{}}}
   end
 
   @impl GenServer
   def terminate(reason, state) do
     Logger.info("MCP client terminating: #{inspect(reason)}")
 
-    # Close the transport
-    if state.transport do
+    # Reply with errors to any remaining pending requests if termination wasn't normal
+    if reason != :normal and reason != :shutdown do
+      for {id, from} <- state.pending_requests do
+        # Use try/catch as the caller might already be dead
+        try do
+          GenServer.reply(from, {:error, {:client_terminated, reason}})
+          Logger.debug("Replied with error to pending request #{inspect(id)} during termination")
+        catch
+          # Ignore if caller is dead
+          :exit, _ -> :ok
+        end
+      end
+    end
+
+    # Close the transport if it's still alive and we started it
+    # (Checking if transport is pid and alive)
+    if is_pid(state.transport) and Process.alive?(state.transport) do
+      # Avoid closing if it was an existing transport passed in?
+      # For now, assume client owns the transport lifecycle if it started it.
+      Logger.debug("Client closing transport #{inspect(state.transport)}")
       state.transport_mod.close(state.transport)
     end
 

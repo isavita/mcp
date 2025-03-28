@@ -1,10 +1,10 @@
 defmodule MCP.Transport.Stdio do
   @moduledoc """
-  Implementation of the MCP transport behavior for stdin/stdout communication.
+  Implementation of the MCP transport behavior using Elixir Ports.
 
-  This module manages bidirectional communication over standard input/output streams,
-  which is particularly useful for communicating with parent processes or when running
-  as a subprocess of an editor or other tool.
+  This module manages communication with an external MCP server process
+  launched via a specified command. It uses Elixir's `Port` mechanism
+  to interact with the external process's stdin and stdout.
   """
 
   use GenServer
@@ -17,16 +17,20 @@ defmodule MCP.Transport.Stdio do
 
   @impl MCP.Transport.Behaviour
   @doc """
-  Starts a new STDIO transport process.
+  Starts a new STDIO transport process that manages an external server.
 
   ## Options
-    * `:debug_mode` - Enable debug logging (default: Application.get_env(:mcp, :debug, false))
-    * `:name` - Name for the process registration
-    * `:io_module` - Module to use for IO operations (default: IO)
+    * `:command` (required) - A string containing the command and arguments to launch the external MCP server (e.g., `"npx -y @modelcontextprotocol/server-filesystem /path/to/data"`).
+    * `:debug_mode` - Enable debug logging (default: Application.get_env(:mcp, :debug, false)).
+    * `:name` - Name for the process registration.
+    * `:port_options` - Additional options for `Port.open/2` (default: `[:binary, {:packet, :line}, :exit_status, :hide, env: System.get_env()]`).
   """
   def start_link(opts \\ []) do
-    {name_opt, transport_opts} = Keyword.pop(opts, :name)
+    unless Keyword.has_key?(opts, :command) do
+      raise ArgumentError, ":command option is required for MCP.Transport.Stdio"
+    end
 
+    {name_opt, transport_opts} = Keyword.pop(opts, :name)
     gen_opts = if name_opt, do: [name: name_opt], else: []
 
     GenServer.start_link(__MODULE__, transport_opts, gen_opts)
@@ -34,8 +38,8 @@ defmodule MCP.Transport.Stdio do
 
   @impl MCP.Transport.Behaviour
   @doc """
-  Sends a message through the STDIO transport.
-  The message will be encoded as JSON and written to stdout.
+  Sends a message through the STDIO transport to the external process's stdin.
+  The message will be encoded as JSON with a newline.
   """
   def send_message(pid, message) do
     GenServer.call(pid, {:send, message})
@@ -43,12 +47,12 @@ defmodule MCP.Transport.Stdio do
 
   @impl MCP.Transport.Behaviour
   @doc """
-  Registers a process to receive incoming messages.
+  Registers a process to receive incoming messages from the external process's stdout.
 
   The registered process will receive messages in the format:
   `{:mcp_message, message}`
 
-  If the process dies, it will be automatically unregistered.
+  If the handler process dies, it will be automatically unregistered.
   """
   def register_handler(pid, handler_pid) when is_pid(handler_pid) do
     GenServer.call(pid, {:register_handler, handler_pid})
@@ -56,7 +60,8 @@ defmodule MCP.Transport.Stdio do
 
   @impl MCP.Transport.Behaviour
   @doc """
-  Closes the STDIO transport, terminating the process.
+  Closes the STDIO transport, terminating the GenServer and closing the port
+  to the external process.
   """
   def close(pid) do
     try do
@@ -79,62 +84,67 @@ defmodule MCP.Transport.Stdio do
     end
   end
 
-  @doc """
-  Simulates receiving data from stdin (for testing)
-  """
-  def simulate_input(pid, data) do
-    try do
-      GenServer.cast(pid, {:simulate_input, data})
-    catch
-      :exit, _ -> {:error, :process_not_available}
-    end
-  end
-
   # GenServer Implementation
 
   @impl GenServer
   def init(opts) do
     debug_mode = Keyword.get(opts, :debug_mode, Application.get_env(:mcp, :debug, false))
-    io_module = Keyword.get(opts, :io_module, IO)
+    command = Keyword.fetch!(opts, :command)
+
+    default_port_opts = [
+      # Work with binary data
+      :binary,
+      # Read line by line (MCP uses newline-delimited JSON)
+      {:packet, :line},
+      # Get notification when the external process exits
+      :exit_status,
+      # Hide window on OSes that might show one
+      :hide,
+      # Pass environment variables
+      env: System.get_env()
+    ]
+
+    port_opts = Keyword.get(opts, :port_options, default_port_opts)
 
     if debug_mode do
-      Logger.debug("Starting STDIO transport")
+      Logger.debug("Starting STDIO transport with command: #{inspect(command)}")
+      Logger.debug("Port options: #{inspect(port_opts)}")
     end
-
-    # If using MockIO, register with it
-    if io_module == MCP.Test.MockIO do
-      :ok = io_module.register_transport(self())
-    end
-
-    # Start IO reading process if not in test mode
-    reader_pid =
-      if io_module == IO do
-        {:ok, pid} = start_reader(self(), io_module)
-        pid
-      else
-        nil
-      end
 
     # Set up trap_exit to handle termination gracefully
     Process.flag(:trap_exit, true)
 
-    {:ok,
-     %{
-       debug_mode: debug_mode,
-       io_module: io_module,
-       handler: nil,
-       handler_ref: nil,
-       reader: reader_pid,
-       reader_ref: if(reader_pid, do: Process.monitor(reader_pid), else: nil),
-       buffer: ""
-     }}
+    try do
+      port = Port.open({:spawn, command}, port_opts)
+
+      if debug_mode do
+        Logger.debug("Port opened successfully: #{inspect(port)}")
+      end
+
+      {:ok,
+       %{
+         debug_mode: debug_mode,
+         command: command,
+         port: port,
+         handler: nil,
+         handler_ref: nil
+         # No buffer needed due to {:packet, :line}
+       }}
+    catch
+      kind, reason ->
+        Logger.error(
+          "Failed to open port for command '#{command}'. Reason: #{kind} - #{inspect(reason)}"
+        )
+
+        {:stop, {:port_open_failed, {kind, reason}}}
+    end
   end
 
   @impl GenServer
   def handle_call({:register_handler, handler_pid}, _from, state) do
     # Remove existing handler monitoring if present
     if state.handler_ref do
-      Process.demonitor(state.handler_ref)
+      Process.demonitor(state.handler_ref, [:flush])
     end
 
     # Set up monitoring for the new handler
@@ -150,18 +160,29 @@ defmodule MCP.Transport.Stdio do
   @impl GenServer
   def handle_call({:send, message}, _from, state) do
     if state.debug_mode do
-      Logger.debug("STDIO transport sending: #{inspect(message)}")
+      Logger.debug("STDIO transport sending to port: #{inspect(message)}")
     end
 
     result =
       try do
+        # encode adds the newline
         encoded = Formatter.encode(message)
-        state.io_module.binwrite(:stdio, encoded)
-        :ok
+
+        if Port.command(state.port, encoded) do
+          :ok
+        else
+          # This usually means the port is closed or closing
+          Logger.error("Port.command failed, port may be closed.")
+          {:error, :port_command_failed}
+        end
       rescue
         e ->
-          Logger.error("Error encoding or sending message: #{inspect(e)}")
-          {:error, {:send_failed, e}}
+          Logger.error("Error encoding message: #{inspect(e)}")
+          {:error, {:encode_failed, e}}
+      catch
+        :exit, reason ->
+          Logger.error("Error sending message via Port.command: #{inspect(reason)}")
+          {:error, {:port_command_crashed, reason}}
       end
 
     {:reply, result, state}
@@ -169,42 +190,66 @@ defmodule MCP.Transport.Stdio do
 
   @impl GenServer
   def handle_call(:get_state, _from, state) do
-    # Don't expose monitor references in the returned state
-    safe_state = Map.drop(state, [:reader_ref, :handler_ref])
+    # Don't expose monitor references or the raw port in the returned state
+    safe_state = Map.drop(state, [:port, :handler_ref])
     {:reply, {:ok, safe_state}, state}
   end
 
   @impl GenServer
-  def handle_cast({:simulate_input, data}, state) do
-    process_input(data, state)
+  def handle_call(:get_raw_port_for_test, _from, state) do
+    # ONLY FOR TESTING - allows checking Port.info
+    {:reply, state.port, state}
   end
 
+  # Handle messages FROM the external process via the Port
   @impl GenServer
-  def handle_info({:io_data, data}, state) do
-    process_input(data, state)
+  def handle_info({port, {:data, {:packet, :line, line}}}, %{port: port} = state) do
+    # Received a line from the external process's stdout
+    if state.debug_mode do
+      Logger.debug("STDIO transport received line from port: #{inspect(line)}")
+    end
+
+    case Parser.parse(line) do
+      {:ok, message} ->
+        if state.handler do
+          send(state.handler, {:mcp_message, message})
+        else
+          Logger.warning(
+            "No handler registered for STDIO transport, dropping message: #{inspect(message)}"
+          )
+        end
+
+      {:error, reason} ->
+        Logger.error(
+          "Error parsing message from port: #{inspect(reason)}. Line: #{inspect(line)}"
+        )
+    end
+
+    {:noreply, state}
   end
 
+  # Handle port closure/exit
   @impl GenServer
-  def handle_info({:io_error, reason}, state) do
-    Logger.error("STDIO transport error: #{inspect(reason)}")
-    {:stop, {:io_error, reason}, state}
+  def handle_info({port, {:exit_status, status}}, %{port: port} = state) do
+    # The external process terminated
+    Logger.error("External process for STDIO transport exited with status: #{status}")
+    {:stop, {:external_process_exited, status}, state}
   end
 
-  @impl GenServer
-  def handle_info({:DOWN, ref, :process, pid, reason}, %{reader_ref: ref, reader: pid} = state) do
-    Logger.error("STDIO reader process down: #{inspect(reason)}")
-    {:stop, {:reader_down, reason}, state}
-  end
-
+  # Handle linked handler process exit
   @impl GenServer
   def handle_info({:DOWN, ref, :process, pid, reason}, %{handler_ref: ref, handler: pid} = state) do
     Logger.info("STDIO handler process down: #{inspect(reason)}, unregistering")
     {:noreply, %{state | handler: nil, handler_ref: nil}}
   end
 
+  # Catch-all for other messages
   @impl GenServer
-  def handle_info({:EXIT, pid, reason}, state) do
-    Logger.warning("Linked process #{inspect(pid)} exited: #{inspect(reason)}")
+  def handle_info(message, state) do
+    if state.debug_mode do
+      Logger.debug("STDIO transport received unexpected message: #{inspect(message)}")
+    end
+
     {:noreply, state}
   end
 
@@ -214,73 +259,16 @@ defmodule MCP.Transport.Stdio do
 
     # Clean up resources
     if state.handler_ref do
-      Process.demonitor(state.handler_ref)
+      Process.demonitor(state.handler_ref, [:flush])
     end
 
-    if state.reader_ref do
-      Process.demonitor(state.reader_ref)
-    end
-
-    if state.reader && Process.alive?(state.reader) do
-      Process.exit(state.reader, :shutdown)
+    # Close the port if it's still open
+    if state.port && Port.info(state.port) do
+      # Maybe send SIGTERM/SIGKILL? For now, just close.
+      Port.close(state.port)
+      Logger.info("Closed port to external process.")
     end
 
     :ok
-  end
-
-  # Private Functions
-
-  defp start_reader(parent, io_module) do
-    Task.start_link(fn -> read_loop(parent, io_module) end)
-  end
-
-  defp read_loop(parent, io_module) do
-    case io_module.binread(:stdio, :line) do
-      :eof ->
-        send(parent, {:io_error, :eof})
-
-      {:error, reason} ->
-        send(parent, {:io_error, reason})
-
-      data when is_binary(data) ->
-        send(parent, {:io_data, data})
-        read_loop(parent, io_module)
-    end
-  end
-
-  defp process_input(data, state) do
-    if state.debug_mode do
-      Logger.debug("STDIO transport received: #{inspect(data)}")
-    end
-
-    # Add received data to buffer
-    new_buffer = state.buffer <> data
-
-    # Process messages until buffer is empty or incomplete
-    process_buffer(new_buffer, state)
-  end
-
-  defp process_buffer(buffer, state) do
-    case Parser.extract_message(buffer) do
-      {:ok, message, rest} ->
-        # Process the message
-        if state.handler do
-          send(state.handler, {:mcp_message, message})
-        else
-          Logger.warning("No handler registered for STDIO transport, dropping message")
-        end
-
-        # Continue processing rest of buffer
-        process_buffer(rest, state)
-
-      {:incomplete, incomplete_buffer} ->
-        # Need more data to complete the message
-        {:noreply, %{state | buffer: incomplete_buffer}}
-
-      {:error, reason, rest} ->
-        Logger.error("Error parsing message: #{inspect(reason)}")
-        # Skip the invalid message and continue with the rest
-        process_buffer(rest, state)
-    end
   end
 end
