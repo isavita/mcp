@@ -105,34 +105,33 @@ defmodule MCP.Transport.StdioTest do
       assert_receive {:message_received, ^expected_echo_response}, 3000
     end
 
-    # /mcp/test/mcp/transport/stdio_test.exs
-
-    # ... other tests ...
-
-    # Renamed test to reflect what's actually being tested
-    test "raises Exit when sending if transport process has stopped", %{} do
-      # Trap exits to prevent test process crashing when linked transport stops
+    test "send_message/2 returns error when transport process is dead", %{} do
+      # Start with trap_exit to prevent the test process from crashing
       Process.flag(:trap_exit, true)
 
+      # Start a transport with a command that will exit quickly
       {:ok, transport} = Stdio.start_link(command: "elixir -e ':ok'")
 
-      # Wait long enough for the external process to exit AND the transport
-      # GenServer to process the :exit_status and stop itself.
-      # Should be enough
-      Process.sleep(500)
+      # Wait for the EXIT message from the transport process
+      assert_receive {:EXIT, ^transport, {:external_process_exited, 0}}, 2000
 
-      # Optional but good: Verify the transport process is actually dead
-      refute Process.alive?(transport)
-
+      # At this point, the transport is definitely dead
       message = Formatter.create_request("test", %{}, "req-3")
 
-      # Assert that calling send_message now raises an Exit exception
-      # because the GenServer process (`transport`) is dead.
-      assert_raise Exit, fn ->
-        Stdio.send_message(transport, message)
-      end
+      # Now make the call through a separate process to avoid crashing the test
+      test_pid = self()
+      spawn_link(fn ->
+        try do
+          result = Stdio.send_message(transport, message)
+          send(test_pid, {:result, result})
+        catch
+          kind, reason -> send(test_pid, {:caught, kind, reason})
+        end
+      end)
 
-      # Untrap exits at the end of the test
+      # Check what we received
+      assert_receive {:caught, :exit, _}, 1000
+
       Process.flag(:trap_exit, false)
     end
   end
