@@ -431,27 +431,16 @@ defmodule MCP.Client do
       id ->
         # Check if it's a response we are waiting for
         case Map.pop(state.pending_requests, id) do
+          {nil, _state} ->
+            Logger.warning(
+              "Client received response for unknown or timed-out ID #{inspect(id)}: #{inspect(message)}"
+            )
+            {:noreply, state}
           {from, pending} ->
             # Reply to the original caller with the response
             GenServer.reply(from, {:ok, message})
             # Update state without this pending request
             {:noreply, %{state | pending_requests: pending}}
-
-          # This case is unreachable if `id` is not nil and Map.get found it.
-          # If Map.pop fails (key doesn't exist), it returns :error.
-          # We rely on the outer case Map.get(...) to handle the "not found" case.
-          # :error ->
-          #   Logger.warning("Client received unexpected response with ID #{inspect(id)}: #{inspect(message)}")
-          #   {:noreply, state}
-
-          # If Map.pop returns :error (key not found), log warning
-          # This path is taken if the id exists in the message but not in pending_requests
-          :error ->
-            Logger.warning(
-              "Client received response for unknown or timed-out ID #{inspect(id)}: #{inspect(message)}"
-            )
-
-            {:noreply, state}
         end
     end
   end
