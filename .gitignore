@@ -24,3 +24,9 @@ mcp-*.tar
 
 # Ignore all .env files
 .env*
+
+# Ignore all manual testing livebooks
+*.livemd
+
+# Ignore all llm context 
+.llm-context/*
