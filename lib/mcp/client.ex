@@ -435,7 +435,9 @@ defmodule MCP.Client do
             Logger.warning(
               "Client received response for unknown or timed-out ID #{inspect(id)}: #{inspect(message)}"
             )
+
             {:noreply, state}
+
           {from, pending} ->
             # Reply to the original caller with the response
             GenServer.reply(from, {:ok, message})

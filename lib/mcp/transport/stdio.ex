@@ -74,9 +74,12 @@ defmodule MCP.Transport.Stdio do
 
     # Manual line buffering is now required.
     default_port_opts = [
-      :binary, # Work with binary data
-      :exit_status, # Get notification when the external process exits
-      :hide, # Hide window on OSes that might show one
+      # Work with binary data
+      :binary,
+      # Get notification when the external process exits
+      :exit_status,
+      # Hide window on OSes that might show one
+      :hide
     ]
 
     port_opts = Keyword.get(opts, :port_options, default_port_opts)
@@ -102,13 +105,15 @@ defmodule MCP.Transport.Stdio do
          port: port,
          handler: nil,
          handler_ref: nil,
-         buffer: "" # ADDED: Buffer for manual line processing
+         # ADDED: Buffer for manual line processing
+         buffer: ""
        }}
     catch
       kind, reason ->
         Logger.error(
           "Failed to open port for command '#{command}'. Reason: #{kind} - #{inspect(reason)}"
         )
+
         {:stop, {:port_open_failed, {kind, reason}}}
     end
   end
@@ -118,10 +123,13 @@ defmodule MCP.Transport.Stdio do
     if state.handler_ref do
       Process.demonitor(state.handler_ref, [:flush])
     end
+
     ref = Process.monitor(handler_pid)
+
     if state.debug_mode do
       Logger.debug("STDIO transport registered new handler: #{inspect(handler_pid)}")
     end
+
     {:reply, :ok, %{state | handler: handler_pid, handler_ref: ref}}
   end
 
@@ -134,7 +142,8 @@ defmodule MCP.Transport.Stdio do
     result =
       try do
         # Ensure message is encoded WITH newline for line-based external processes
-        encoded = Formatter.encode(message) # encode adds the newline
+        # encode adds the newline
+        encoded = Formatter.encode(message)
 
         if Port.command(state.port, encoded) do
           :ok
@@ -178,7 +187,8 @@ defmodule MCP.Transport.Stdio do
 
     # Append data to buffer and process lines
     new_buffer = state.buffer <> data
-    process_buffer(new_buffer, state) # Returns {:noreply, new_state}
+    # Returns {:noreply, new_state}
+    process_buffer(new_buffer, state)
   end
 
   # Handle port closure/exit
@@ -186,7 +196,8 @@ defmodule MCP.Transport.Stdio do
   def handle_info({port, {:exit_status, status}}, %{port: port} = state) do
     Logger.error("External process for STDIO transport exited with status: #{status}")
     # Process any remaining data in the buffer before stopping
-    {:noreply, final_state} = process_buffer(state.buffer <> "\n", state) # Add newline to flush
+    # Add newline to flush
+    {:noreply, final_state} = process_buffer(state.buffer <> "\n", state)
     {:stop, {:external_process_exited, status}, final_state}
   end
 
@@ -203,19 +214,23 @@ defmodule MCP.Transport.Stdio do
     if state.debug_mode do
       Logger.debug("STDIO transport received unexpected message: #{inspect(message)}")
     end
+
     {:noreply, state}
   end
 
   @impl GenServer
   def terminate(reason, state) do
     Logger.info("STDIO transport terminating: #{inspect(reason)}")
+
     if state.handler_ref do
       Process.demonitor(state.handler_ref, [:flush])
     end
+
     if is_port(state.port) && Port.info(state.port) != nil do
       Port.close(state.port)
       Logger.info("Closed port to external process.")
     end
+
     :ok
   end
 
@@ -229,12 +244,14 @@ defmodule MCP.Transport.Stdio do
         if state.debug_mode do
           Logger.debug("STDIO transport parsed message: #{inspect(message)}")
         end
+
         # Process the message
         if state.handler do
           send(state.handler, {:mcp_message, message})
         else
           Logger.warning("No handler registered for STDIO transport, dropping message")
         end
+
         # Continue processing rest of buffer recursively
         process_buffer(rest, state)
 
