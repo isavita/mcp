@@ -4,16 +4,12 @@
 [![Hexdocs.pm](https://img.shields.io/badge/api-docs-purple.svg)](https://hexdocs.pm/mcp)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-An Elixir client library for the [Model Context Protocol (MCP)](https://github.com/model-context-protocol), which enables communication between LLMs and external tools, data sources, and services.
+An Elixir client library for the [Model Context Protocol (MCP)](https://github.com/model-context-protocol), enabling communication between LLMs and external tools, data sources, and services.
 
 ## Features
 
 - **Standard-Compliant**: Full implementation of the JSON-RPC 2.0 based MCP specification
-- **Transport Agnostic**: Designed for extensibility with pluggable transports (currently supports stdio)
-- **Type Safe**: Properly typed API for all MCP operations
-- **Well Tested**: Comprehensive test suite ensures reliability
-- **Documented**: Complete documentation with examples
-- **Performant**: Low overhead, designed for efficient communication
+- **Transport Agnostic**: Extensible with pluggable transports (currently supports stdio)
 
 ## Installation
 
@@ -62,7 +58,7 @@ MCP.enable_debug()
 
 ### Advanced Configuration
 
-For more complex scenarios, you can configure the client directly:
+For more complex scenarios, configure the client directly:
 
 ```elixir
 {:ok, client} = MCP.Client.start_link([
@@ -88,16 +84,6 @@ The MCP library is designed with a modular architecture:
   - **MCP.Protocol.Validator**: Validates message structure
 
 This design allows for easy extension with new transport types (e.g., HTTP, TCP) while maintaining the same client interface.
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
 
 ## License
 
