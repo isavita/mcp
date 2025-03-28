@@ -62,24 +62,25 @@ defmodule MCP.Transport.StdioTest do
       end
     end
 
-    # FIX 1: Test that transport stops shortly after start with invalid command
     test "transport stops when command is invalid" do
-      invalid_command = "/path/hopefully/does/not/exist/xyzabc123"
-      # Start the transport directly (not supervised for this test)
-      # and link it so we get EXIT signal
-      {:ok, transport_pid} = Stdio.start_link(command: invalid_command)
+      with_higher_log_level(:critical, fn ->
+        invalid_command = "/path/hopefully/does/not/exist/xyzabc123"
+        # Start the transport directly (not supervised for this test)
+        # and link it so we get EXIT signal
+        {:ok, transport_pid} = Stdio.start_link(command: invalid_command)
 
-      # Trap exits to receive the EXIT message instead of crashing
-      Process.flag(:trap_exit, true)
+        # Trap exits to receive the EXIT message instead of crashing
+        Process.flag(:trap_exit, true)
 
-      # Assert that the transport process exits with an external process error
-      # The status code 127 is common for "command not found" from sh.
-      assert_receive {:EXIT, ^transport_pid, {:external_process_exited, status}}, 1000
-      # Check status is non-zero (e.g., 127)
-      refute status == 0
+        # Assert that the transport process exits with an external process error
+        # The status code 127 is common for "command not found" from sh.
+        assert_receive {:EXIT, ^transport_pid, {:external_process_exited, status}}, 1000
+        # Check status is non-zero (e.g., 127)
+        refute status == 0
 
-      # Untrap exits
-      Process.flag(:trap_exit, false)
+        # Untrap exits
+        Process.flag(:trap_exit, false)
+      end)
     end
 
     test "can be started with a name", %{transport: transport, test_name: test_name} do
@@ -105,34 +106,37 @@ defmodule MCP.Transport.StdioTest do
       assert_receive {:message_received, ^expected_echo_response}, 3000
     end
 
-    test "send_message/2 returns error when transport process is dead", %{} do
-      # Start with trap_exit to prevent the test process from crashing
-      Process.flag(:trap_exit, true)
+    test "send_message/2 returns error when transport process is dead" do
+      with_higher_log_level(:critical, fn ->
+        # Start with trap_exit to prevent the test process from crashing
+        Process.flag(:trap_exit, true)
 
-      # Start a transport with a command that will exit quickly
-      {:ok, transport} = Stdio.start_link(command: "elixir -e ':ok'")
+        # Start a transport with a command that will exit quickly
+        {:ok, transport} = Stdio.start_link(command: "elixir -e ':ok'")
 
-      # Wait for the EXIT message from the transport process
-      assert_receive {:EXIT, ^transport, {:external_process_exited, 0}}, 2000
+        # Wait for the EXIT message from the transport process
+        assert_receive {:EXIT, ^transport, {:external_process_exited, 0}}, 2000
 
-      # At this point, the transport is definitely dead
-      message = Formatter.create_request("test", %{}, "req-3")
+        # At this point, the transport is definitely dead
+        message = Formatter.create_request("test", %{}, "req-3")
 
-      # Now make the call through a separate process to avoid crashing the test
-      test_pid = self()
-      spawn_link(fn ->
-        try do
-          result = Stdio.send_message(transport, message)
-          send(test_pid, {:result, result})
-        catch
-          kind, reason -> send(test_pid, {:caught, kind, reason})
-        end
+        # Now make the call through a separate process to avoid crashing the test
+        test_pid = self()
+
+        spawn_link(fn ->
+          try do
+            result = Stdio.send_message(transport, message)
+            send(test_pid, {:result, result})
+          catch
+            kind, reason -> send(test_pid, {:caught, kind, reason})
+          end
+        end)
+
+        # Check what we received
+        assert_receive {:caught, :exit, _}, 1000
+
+        Process.flag(:trap_exit, false)
       end)
-
-      # Check what we received
-      assert_receive {:caught, :exit, _}, 1000
-
-      Process.flag(:trap_exit, false)
     end
   end
 
@@ -181,19 +185,20 @@ defmodule MCP.Transport.StdioTest do
       Process.exit(new_handler, :kill)
     end
 
-    # FIX 2: Trap exits and assert {:EXIT, ...} message
-    test "transport stops when external process exits", %{} do
-      # Trap exits in this test process
-      Process.flag(:trap_exit, true)
+    test "transport stops when external process exits" do
+      with_higher_log_level(:critical, fn ->
+        # Trap exits in this test process
+        Process.flag(:trap_exit, true)
 
-      {:ok, temp_transport} = Stdio.start_link(command: "elixir -e ':ok'")
-      # We are linked because we started it directly
+        {:ok, temp_transport} = Stdio.start_link(command: "elixir -e ':ok'")
+        # We are linked because we started it directly
 
-      # Wait for the transport process to EXIT because its external process exited
-      assert_receive {:EXIT, ^temp_transport, {:external_process_exited, 0}}, 3000
+        # Wait for the transport process to EXIT because its external process exited
+        assert_receive {:EXIT, ^temp_transport, {:external_process_exited, 0}}, 3000
 
-      # Untrap exits
-      Process.flag(:trap_exit, false)
+        # Untrap exits
+        Process.flag(:trap_exit, false)
+      end)
     end
   end
 
@@ -208,6 +213,18 @@ defmodule MCP.Transport.StdioTest do
       10_000 ->
         Logger.error("Test message_handler timed out")
         :timeout
+    end
+  end
+
+  # Helper to temporarily change log levels
+  defp with_higher_log_level(level, fun) do
+    old_level = Logger.level()
+
+    try do
+      Logger.configure(level: level)
+      fun.()
+    after
+      Logger.configure(level: old_level)
     end
   end
 end
