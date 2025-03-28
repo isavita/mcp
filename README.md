@@ -10,6 +10,7 @@ An Elixir client library for the [Model Context Protocol (MCP)](https://github.c
 
 - **Standard-Compliant**: Full implementation of the JSON-RPC 2.0 based MCP specification
 - **Transport Agnostic**: Extensible with pluggable transports (currently supports stdio)
+- **Tool Integration**: Seamless access to filesystem operations, prompts, and more
 
 ## Installation
 
@@ -25,71 +26,60 @@ end
 
 ## Usage
 
-### Basic Client
+### Basic Client with Filesystem Server
 
 ```elixir
-# Start a client
-{:ok, client} = MCP.start_client()
+# Start a client with filesystem MCP server
+{:ok, client} = MCP.Client.start_link([
+  transport: MCP.Transport.Stdio,
+  transport_opts: [
+    command: "npx -y @modelcontextprotocol/server-filesystem /path/to/directory"
+  ]
+])
 
 # Initialize the connection
 {:ok, capabilities} = MCP.Client.initialize(client)
-
-# Send initialized notification
 :ok = MCP.Client.send_initialized(client)
 
-# List available resources
-{:ok, resources} = MCP.Client.list_resources(client)
+# List available tools
+{:ok, tools} = MCP.Client.list_tools(client)
 
-# Read a specific resource
-{:ok, content} = MCP.Client.read_resource(client, "file:///path/to/resource")
+# Call a tool - list directory contents
+{:ok, result} = MCP.Client.call_tool(client, "list_directory", 
+  arguments: %{"path" => "/path/to/directory"})
+
+# Clean up when done
+MCP.Client.close(client)
 ```
 
 ### Debugging
-
-To enable debug logging:
 
 ```elixir
 # Enable debug mode for all new clients
 MCP.enable_debug()
 
 # Or start a specific client with debug mode
-{:ok, client} = MCP.start_client(debug_mode: true)
-```
-
-### Advanced Configuration
-
-For more complex scenarios, configure the client directly:
-
-```elixir
-{:ok, client} = MCP.Client.start_link([
-  debug_mode: true,
-  transport: MCP.Transport.Stdio,
-  transport_opts: [
-    name: MyApp.MCPTransport
-  ]
-])
+{:ok, client} = MCP.start_client(debug_mode: true, 
+  transport_opts: [command: "npx -y @modelcontextprotocol/server-filesystem /path/to/directory"])
 ```
 
 ## Architecture
 
-The MCP library is designed with a modular architecture:
+The MCP library uses a modular architecture:
 
-- **MCP**: Top-level module providing configuration and convenience functions
-- **MCP.Client**: Manages communication with an MCP server
-- **MCP.Transport.Behaviour**: Defines the interface for transport implementations
-- **MCP.Transport.Stdio**: Implementation of the transport behavior for stdin/stdout
-- **MCP.Protocol**: Contains protocol-specific modules:
-  - **MCP.Protocol.Formatter**: Creates properly formatted MCP messages
-  - **MCP.Protocol.Parser**: Parses raw input into MCP messages
-  - **MCP.Protocol.Validator**: Validates message structure
+- **MCP**: Top-level configuration and convenience functions
+- **MCP.Client**: Communication management with MCP servers
+- **MCP.Transport.Behaviour**: Interface for transport implementations
+- **MCP.Transport.Stdio**: Stdin/stdout transport implementation
+- **MCP.Protocol**: Protocol-specific modules (Formatter, Parser, Validator)
 
-This design allows for easy extension with new transport types (e.g., HTTP, TCP) while maintaining the same client interface.
+This design allows for easy extension with new transport types while maintaining a consistent client interface.
 
 ## License
 
-This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
+Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
 
 ## Acknowledgements
 
-- The [Model Context Protocol](https://github.com/model-context-protocol) team for the specification
-- All contributors who have helped build and improve this library
+- The [Model Context Protocol](https://github.com/model-context-protocol) team
+- All contributors to this library
