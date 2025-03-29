@@ -1,7 +1,7 @@
 defmodule MCP.MixProject do
   use Mix.Project
 
-  @version "0.1.0"
+  @version "0.2.0"
   @source_url "https://github.com/isavita/mcp"
 
   def project do
@@ -40,6 +40,8 @@ defmodule MCP.MixProject do
     [
       {:jason, "~> 1.4"},
       {:uuid, "~> 1.1"},
+      {:bandit, "~> 1.0"},
+      {:plug, "~> 1.14"},
       {:ex_doc, "~> 0.34", only: [:dev, :test], runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:meck, "~> 1.0", only: [:test]}
