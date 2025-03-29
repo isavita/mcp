@@ -138,6 +138,7 @@ defmodule MCP.Transport.SSE do
       connection_count: map_size(state.connections),
       has_handler: state.handler != nil
     }
+
     {:reply, {:ok, sanitized_state}, state}
   end
 
@@ -155,7 +156,8 @@ defmodule MCP.Transport.SSE do
 
   # Handler for incoming messages from the SSE connection
   @impl GenServer
-  def handle_cast({:incoming_message, message}, %{handler: handler} = state) when is_pid(handler) do
+  def handle_cast({:incoming_message, message}, %{handler: handler} = state)
+      when is_pid(handler) do
     if state.debug_mode do
       Logger.debug("SSE transport received message: #{inspect(message)}")
     end
@@ -207,9 +209,10 @@ defmodule MCP.Transport.SSE do
       {:noreply, %{state | handler: nil, handler_ref: nil}}
     else
       # Find and remove the connection
-      connection_id = Enum.find_value(state.connections, fn {id, conn_pid} ->
-        if conn_pid == pid, do: id, else: nil
-      end)
+      connection_id =
+        Enum.find_value(state.connections, fn {id, conn_pid} ->
+          if conn_pid == pid, do: id, else: nil
+        end)
 
       if connection_id do
         Logger.debug("SSE connection #{connection_id} down: #{inspect(reason)}")

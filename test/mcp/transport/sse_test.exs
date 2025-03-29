@@ -15,7 +15,7 @@ defmodule MCP.Transport.SSETest do
     on_exit(fn -> Logger.configure(level: previous_level) end)
 
     # Use unique port for each test to avoid conflicts
-    test_port = 4000 + System.unique_integer([:positive]) |> rem(1000) |> abs()
+    test_port = (4000 + System.unique_integer([:positive])) |> rem(1000) |> abs()
 
     # Start the transport with test settings
     start_opts = [
