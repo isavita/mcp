@@ -151,7 +151,7 @@ defmodule MCP.Transport.SSE do
     # Monitor the connection process to detect disconnections
     ref = Process.monitor(pid)
 
-    {:reply, :ok, %{state | connections: Map.put(state.connections, id, pid)}}
+    {:reply, :ok, %{state | connections: Map.put(state.connections, id, %{pid: pid, ref: ref})}}
   end
 
   # Handler for incoming messages from the SSE connection
