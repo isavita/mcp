@@ -58,8 +58,13 @@ defmodule MCP.Server.Transport.SSE.Plug do
             |> put_resp_header("content-type", "text/event-stream; charset=utf-8")
             |> put_resp_header("cache-control", "no-cache")
             |> put_resp_header("connection", "keep-alive")
+            # Add the connection ID in a response header so clients can use it in POST requests
+            |> put_resp_header("x-mcp-connection-id", conn_id)
             |> send_chunked(200)
 
+          # Send connection ID as the first SSE event
+          {:ok, conn} = chunk(conn, "event: connection\ndata: #{conn_id}\n\n")
+          # Also send a connected comment for compatibility
           {:ok, conn} = chunk(conn, ": connected\n\n")
 
           # Enter loop to wait for messages from transport to send to client
@@ -90,8 +95,9 @@ defmodule MCP.Server.Transport.SSE.Plug do
 
   # Handle POST: Receive message from client
   defp handle_post_message(conn, transport_pid) do
-    # Use a temporary ID for logging/correlation during POST handling
-    conn_id = generate_conn_id()
+    # Get connection ID from headers, or from query params, or generate a new one 
+    # as a fallback for backward compatibility
+    conn_id = get_connection_id_from_request(conn)
     Logger.debug("SSE Plug: POST request from #{conn_id}")
 
     # Read body
@@ -140,6 +146,26 @@ defmodule MCP.Server.Transport.SSE.Plug do
       {:error, reason} ->
         Logger.error("SSE Plug: Error reading POST body from #{conn_id}: #{inspect(reason)}")
         send_resp(conn, 400, "Bad Request (Body Read Error)")
+    end
+  end
+
+  # Get connection ID from the request (headers, query params, or generate a new one)
+  defp get_connection_id_from_request(conn) do
+    # Try to get from headers first (preferred method)
+    case get_req_header(conn, "x-mcp-connection-id") do
+      [conn_id | _] when is_binary(conn_id) and byte_size(conn_id) > 0 ->
+        conn_id
+
+      _ ->
+        # Try to get from query params next
+        case conn.query_params["connection_id"] do
+          conn_id when is_binary(conn_id) and byte_size(conn_id) > 0 ->
+            conn_id
+
+          _ ->
+            # Fallback: generate a new one (backward compatibility)
+            generate_conn_id()
+        end
     end
   end
 
