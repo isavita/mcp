@@ -9,8 +9,6 @@ defmodule MCP.Server do
   require Logger
 
   alias MCP.Protocol.{Formatter, Validator}
-  # Example feature module
-  alias MCP.Server.Features.SystemInfo
 
   @default_protocol_version "2025-03-26"
 
@@ -398,7 +396,7 @@ defmodule MCP.Server do
           )
         rescue
           e ->
-            stacktrace = System.stacktrace()
+            stacktrace = __STACKTRACE__
 
             Logger.error(
               "Error executing tool '#{tool_name}': #{inspect(e)}\n#{inspect(stacktrace)}"

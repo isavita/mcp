@@ -84,7 +84,7 @@ defmodule MCP.Server.Transport.SSE.Plug do
         Logger.error("SSE Plug: Error during GET handling for #{conn_id}: #{inspect(e)}")
         # Ensure connection is cleaned up if registration happened before error
         _ = GenServer.call(transport_pid, {:client_disconnected, conn_id}, 5000)
-        reraise e, System.stacktrace()
+        reraise e, __STACKTRACE__
     end
   end
 
@@ -172,7 +172,7 @@ defmodule MCP.Server.Transport.SSE.Plug do
             :ok
 
           kind, reason ->
-            stacktrace = System.stacktrace()
+            stacktrace = __STACKTRACE__
 
             Logger.error(
               "SSE Plug: Error sending chunk to #{conn_id}: #{inspect(kind)}, #{inspect(reason)}\n#{inspect(stacktrace)}"
@@ -210,7 +210,7 @@ defmodule MCP.Server.Transport.SSE.Plug do
             :ok
 
           kind, reason ->
-            stacktrace = System.stacktrace()
+            stacktrace = __STACKTRACE__
 
             Logger.error(
               "SSE Plug: Error sending keepalive to #{conn_id}: #{inspect(kind)}, #{inspect(reason)}\n#{inspect(stacktrace)}"

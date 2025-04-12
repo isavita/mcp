@@ -24,9 +24,8 @@ defmodule MCP.Server.Transport.SSE do
     * `:debug_mode` - Enable debug logging.
     * `:bandit_opts` - Additional options for Bandit.
   """
-  def start_link(opts \\ [])
-
-  def start_link(opts) do
+  @impl true
+  def start_link(opts \\ []) do
     unless Keyword.has_key?(opts, :port), do: raise(ArgumentError, ":port option is required")
     unless Keyword.has_key?(opts, :path), do: raise(ArgumentError, ":path option is required")
 
@@ -35,9 +34,6 @@ defmodule MCP.Server.Transport.SSE do
 
     GenServer.start_link(__MODULE__, opts, [])
   end
-
-  @impl MCP.Transport.Behaviour
-  def start_link(_), do: {:error, :use_public_start_link}
 
   @doc """
   Sends a message (response or notification) to a specific client connection.
@@ -202,45 +198,32 @@ defmodule MCP.Server.Transport.SSE do
 
   # Handle DOWN message if a Plug process (client connection) dies
   @impl GenServer
-  def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
-    # Find connection by monitor ref and remove it
-    case Enum.find(state.connections, fn {_id, %{ref: r}} -> r == ref end) do
-      {conn_id, _conn_info} ->
-        if state.debug_mode do
-          Logger.debug("SSE Transport: Plug process for #{conn_id} down: #{inspect(reason)}")
-        end
+  def handle_info({:DOWN, ref, :process, pid, reason}, state) do
+    # Check if this is the server_pid monitor
+    if ref == state.server_pid_ref and pid == state.server_pid do
+      Logger.error(
+        "SSE Transport: Main MCP Server process died: #{inspect(reason)}. Stopping transport."
+      )
 
-        new_connections = Map.delete(state.connections, conn_id)
-        # Notify the main MCP.Server
-        send(state.server_pid, {:client_disconnected, self(), conn_id})
-        {:noreply, %{state | connections: new_connections}}
+      {:stop, :server_process_died, state}
+    else
+      # Find connection by monitor ref and remove it
+      case Enum.find(state.connections, fn {_id, %{ref: r}} -> r == ref end) do
+        {conn_id, _conn_info} ->
+          if state.debug_mode do
+            Logger.debug("SSE Transport: Plug process for #{conn_id} down: #{inspect(reason)}")
+          end
 
-      _ ->
-        # Could be the server_pid monitor, check that
-        if ref == state.server_pid_ref do
-          Logger.error(
-            "SSE Transport: Main MCP Server process died: #{inspect(reason)}. Stopping transport."
-          )
+          new_connections = Map.delete(state.connections, conn_id)
+          # Notify the main MCP.Server
+          send(state.server_pid, {:client_disconnected, self(), conn_id})
+          {:noreply, %{state | connections: new_connections}}
 
-          {:stop, :server_process_died, state}
-        else
+        _ ->
           # Unknown monitor ref
           {:noreply, state}
-        end
+      end
     end
-  end
-
-  # Handle DOWN message if the main MCP Server process dies
-  @impl GenServer
-  def handle_info(
-        {:DOWN, ref, :process, pid, reason},
-        %{server_pid: pid, server_pid_ref: ref} = state
-      ) do
-    Logger.error(
-      "SSE Transport: Main MCP Server process died: #{inspect(reason)}. Stopping transport."
-    )
-
-    {:stop, :server_process_died, state}
   end
 
   # Catch-all for other messages
